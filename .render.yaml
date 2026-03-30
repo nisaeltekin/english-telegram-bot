@@ -1,0 +1,5 @@
+services:
+  - type: web
+    name: english-telegram-bot
+    env: python
+    pythonVersion: 3.11
