@@ -1,169 +1,124 @@
-from telegram import Bot
-from apscheduler.schedulers.background import BackgroundScheduler
-from datetime import datetime, timedelta
-import pytz
+import requests
 import json
 import os
+from datetime import datetime, timedelta
+import pytz
+import time
+from apscheduler.schedulers.background import BackgroundScheduler
 
-# ------------------ Kullanıcı Ayarları ------------------
-TOKEN = "8337814716:AAFIXjzLAySvCpwGg4zYHQ-1N5hltynaLkA"      
-CHAT_ID = 1588882211  
-tz = pytz.timezone("Europe/Istanbul")  # Türkiye saati
-DATA_FILE = "english_bot_data.json"
+TOKEN = "8337814716:AAFIXjzLAySvCpwGg4zYHQ-1N5hltynaLkA"
+CHAT_ID = "1588882211"
+tz = pytz.timezone("Europe/Istanbul")
+DATA_FILE = "data.json"
 
-bot = Bot(token=TOKEN)
-scheduler = BackgroundScheduler(timezone=tz)
+def send(text):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    requests.post(url, data={"chat_id": CHAT_ID, "text": text})
 
-# ------------------ Veri Dosyası ------------------
-# Eğer yoksa oluştur
-if not os.path.exists(DATA_FILE):
-    with open(DATA_FILE, "w") as f:
-        json.dump({}, f)
-
-# ------------------ Yardımcı Fonksiyonlar ------------------
-def load_data():
-    with open(DATA_FILE, "r") as f:
+def load():
+    if not os.path.exists(DATA_FILE):
+        return {}
+    with open(DATA_FILE) as f:
         return json.load(f)
 
-def save_data(data):
+def save(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f)
 
-def get_today_key():
+def today():
     return datetime.now(tz).strftime("%Y-%m-%d")
 
-def send_message(text):
-    bot.send_message(chat_id=CHAT_ID, text=text)
+def yesterday():
+    return (datetime.now(tz) - timedelta(days=1)).strftime("%Y-%m-%d")
 
-# ------------------ Görevler ve Kaynaklar ------------------
-daily_tasks = [
-    {"id": 1, "name": "Dinleme", "source": "BBC Learning English / VOA / YouTube kısa videolar"},
-    {"id": 2, "name": "Yazma", "source": "Günlük 5-6 cümle → Google Docs veya Notepad"},
-    {"id": 3, "name": "Konuşma / Kelime", "source": "Ses kaydı → 10 yeni kelime tekrar et"}
-]
+def daily_tasks():
+    data = load()
+    t = today()
+    data[t] = {"1": False, "2": False, "3": False}
+    save(data)
+    send("📚 Günlük İngilizce Görevlerin:\n\n"
+         "Görev 1 - 🎧 Dinleme:\nBBC Learning English'ten bir video izle.\nhttps://www.bbc.co.uk/learningenglish\nBitince: yaptım1\n\n"
+         "Görev 2 - ✍️ Yazma:\n5-6 İngilizce cümle yaz, Notepad'e kaydet.\nBitince: yaptım2\n\n"
+         "Görev 3 - 🗣️ Konuşma/Kelime:\n10 yeni kelime öğren ve sesli tekrar et.\nhttps://www.vocabulary.com\nBitince: yaptım3")
 
-extra_tasks = [
-    {"id": 4, "name": "Okuma / Grammar", "source": "English Grammar in Use / Breaking News English"}
-]
-
-# ------------------ Günlük Görev Mesajı ------------------
-def send_daily_tasks():
-    data = load_data()
-    today = get_today_key()
-
-    if today not in data:
-        data[today] = {"tasks": {}, "completed": {}}
-
-    msg = f"🌞 Günlük İngilizce Görevleri:\n\n"
-    for task in daily_tasks:
-        task_id = str(task["id"])
-        data[today]["tasks"][task_id] = False
-        msg += f"{task['id']}. {task['name']} → {task['source']}\n"
-        msg += f"Cevap için: yaptım{task['id']}\n\n"
-
-    # Haftada 2-3 gün ekstra görev
-    weekday = datetime.now(tz).weekday()
-    if weekday in [1,3,5]:  # Pazartesi, Çarşamba, Cuma
-        for task in extra_tasks:
-            task_id = str(task["id"])
-            data[today]["tasks"][task_id] = False
-            msg += f"{task['id']}. {task['name']} → {task['source']}\n"
-            msg += f"Cevap için: yaptım{task['id']}\n\n"
-
-    save_data(data)
-    send_message(msg)
-
-# ------------------ Görev Tamamlama ------------------
-def check_task_completion(message):
-    data = load_data()
-    today = get_today_key()
-
-    if today not in data:
+def remind():
+    data = load()
+    t = today()
+    if t not in data:
         return
-
-    for task in daily_tasks + extra_tasks:
-        cmd = f"yaptım{task['id']}"
-        if message.lower() == cmd.lower():
-            data[today]["tasks"][str(task['id'])] = True
-            send_message(f"{task['name']} görevi kaydedildi ✅")
-            save_data(data)
-            return
-
-# ------------------ Hatırlatma ------------------
-def remind_tasks():
-    data = load_data()
-    today = get_today_key()
-    if today not in data:
-        return
-
-    incomplete = [t for t, done in data[today]["tasks"].items() if not done]
+    incomplete = [k for k, v in data[t].items() if not v]
     if incomplete:
-        msg = "⏰ Hala tamamlamadığınız görevler var:\n"
-        for t_id in incomplete:
-            task_name = next((t["name"] for t in daily_tasks + extra_tasks if str(t["id"]) == t_id), "")
-            msg += f"- {task_name} → Cevap için: yaptım{t_id}\n"
-        send_message(msg)
+        tasks = {"1": "Dinleme 🎧", "2": "Yazma ✍️", "3": "Konuşma/Kelime 🗣️"}
+        msg = "⏰ Henüz tamamlamadığın görevler:\n"
+        for k in incomplete:
+            msg += f"- {tasks[k]} → yaptım{k}\n"
+        send(msg)
 
-# ------------------ Haftalık Özet ------------------
+def prev_day_remind():
+    data = load()
+    y = yesterday()
+    if y not in data:
+        return
+    incomplete = [k for k, v in data[y].items() if not v]
+    if incomplete:
+        tasks = {"1": "Dinleme 🎧", "2": "Yazma ✍️", "3": "Konuşma/Kelime 🗣️"}
+        msg = "⚠️ Dünkü tamamlanmayan görevler:\n"
+        for k in incomplete:
+            msg += f"- {tasks[k]}\n"
+        send(msg)
+
 def weekly_summary():
-    data = load_data()
-    today = datetime.now(tz)
-    week_start = today - timedelta(days=today.weekday())
-    week_dates = [(week_start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+    data = load()
+    now = datetime.now(tz)
+    week = [(now - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+    total, done = 0, 0
+    for d in week:
+        if d in data:
+            total += 3
+            done += sum(1 for v in data[d].values() if v)
+    send(f"📊 Haftalık Özet:\n{done}/{total} görev tamamlandı ✅")
 
-    total_tasks = 0
-    completed_tasks = 0
-    msg = "📊 Haftalık Görev Özetiniz:\n"
-    for day in week_dates:
-        if day in data:
-            day_tasks = data[day]["tasks"]
-            total_tasks += len(day_tasks)
-            completed_tasks += sum(1 for done in day_tasks.values() if done)
-            day_msg = f"{day}: {sum(1 for done in day_tasks.values() if done)}/{len(day_tasks)} görev tamamlandı"
-            msg += day_msg + "\n"
+def listen():
+    offset = None
+    while True:
+        url = f"https://api.telegram.org/bot{TOKEN}/getUpdates"
+        params = {"timeout": 30}
+        if offset:
+            params["offset"] = offset
+        try:
+            r = requests.get(url, params=params, timeout=35)
+            updates = r.json().get("result", [])
+            for u in updates:
+                offset = u["update_id"] + 1
+                msg = u.get("message", {}).get("text", "").strip().lower()
+                data = load()
+                t = today()
+                if t not in data:
+                    data[t] = {"1": False, "2": False, "3": False}
+                tasks = {"yaptım1": "1", "yaptım2": "2", "yaptım3": "3"}
+                names = {"1": "Dinleme 🎧", "2": "Yazma ✍️", "3": "Konuşma/Kelime 🗣️"}
+                if msg in tasks:
+                    k = tasks[msg]
+                    data[t][k] = True
+                    save(data)
+                    send(f"✅ {names[k]} tamamlandı! Harika iş!")
+        except:
+            pass
+        time.sleep(1)
 
-    msg += f"\nToplam: {completed_tasks}/{total_tasks} görev tamamlandı ✅"
-    send_message(msg)
-
-# ------------------ Eksik Görevler İçin Ertesi Gün Hatırlatma ------------------
-def remind_previous_day():
-    data = load_data()
-    yesterday = (datetime.now(tz) - timedelta(days=1)).strftime("%Y-%m-%d")
-    if yesterday not in data:
-        return
-
-    incomplete = [t for t, done in data[yesterday]["tasks"].items() if not done]
-    if incomplete:
-        msg = f"⚠️ Dün tamamlamadığınız görevler:\n"
-        for t_id in incomplete:
-            task_name = next((t["name"] for t in daily_tasks + extra_tasks if str(t["id"]) == t_id), "")
-            msg += f"- {task_name} → Cevap için: yaptım{t_id}\n"
-        send_message(msg)
-
-# ------------------ Mini Test ------------------
-def weekly_mini_test():
-    msg = "📝 Haftalık Mini Test!\n- Kısa bir okuma yapın ve 5 kelime yazın\n- 3 kısa cümle yazın\nCevaplarınızı yaptım1, yaptım2 vs ile bildirin"
-    send_message(msg)
-
-# ------------------ Scheduler ------------------
-scheduler.add_job(send_daily_tasks, 'cron', hour=17, minute=0)  # Günlük görevler
-scheduler.add_job(remind_tasks, 'interval', hours=1)  # Saatte 1 hatırlatma
-scheduler.add_job(weekly_summary, 'cron', day_of_week='sun', hour=18, minute=0)  # Haftalık özet
-scheduler.add_job(remind_previous_day, 'cron', hour=9, minute=0)  # Eksik görev hatırlatma
-scheduler.add_job(weekly_mini_test, 'cron', day_of_week='sun', hour=19, minute=0)  # Mini test
-
+scheduler = BackgroundScheduler(timezone=tz)
+scheduler.add_job(daily_tasks, 'cron', hour=17, minute=0)
+scheduler.add_job(remind, 'interval', hours=1)
+scheduler.add_job(prev_day_remind, 'cron', hour=9, minute=0)
+scheduler.add_job(weekly_summary, 'cron', day_of_week='sun', hour=18, minute=0)
 scheduler.start()
 
-# ------------------ Kullanıcı Mesaj Kontrolü ------------------
-def listen_for_input():
-    last_update_id = None
-    while True:
-        updates = bot.get_updates(offset=last_update_id, timeout=10)
-        for update in updates:
-            if update.message and update.message.text:
-                check_task_completion(update.message.text)
-            last_update_id = update.update_id + 1
+send("✅ Bot başlatıldı! Her gün 17:00'de görevlerin gelecek.")
+listen()
+```
 
-if __name__ == "__main__":
-    send_message("✅ İngilizce çalışma botu başlatıldı!")
-    listen_for_input()
+**Adım 2:** `requirements.txt` içeriğini şununla değiştir:
+```
+requests
+APScheduler==3.11.0
+pytz==2024.2
