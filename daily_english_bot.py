@@ -116,9 +116,3 @@ scheduler.start()
 send("✅ Bot başlatıldı! Her gün 17:00'de görevlerin gelecek.")
 listen()
 ```
-
-**Adım 2:** `requirements.txt` içeriğini şununla değiştir:
-```
-requests
-APScheduler==3.11.0
-pytz==2024.2
